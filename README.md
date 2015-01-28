@@ -1,4 +1,7 @@
 # DeltaProxyForwarder
+
+感谢 pad2012 提供如下编译教程
+
 1.服务端：
 在服务器上执行
 git clone https://github.com/RoyalAliceAcademyOfS ... warder.git
