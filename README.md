@@ -9,7 +9,7 @@ gcc dpForwarder.c -o dpForwarder
 ./dpForwarder 12349
 
 3~6步骤请查看此链接：
-https://github.com/RoyalAliceAcademyOfSciences/DeltaProxyGateway/blob/master/README.md
+https://raw.githubusercontent.com/RoyalAliceAcademyOfSciences/DeltaProxyGateway/master/README.md
 
 7.执行程序，测试效果
 dpGateway <IP address> <Port>
