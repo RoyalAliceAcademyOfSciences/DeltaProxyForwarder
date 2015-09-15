@@ -19,6 +19,8 @@
 #include <netinet/udp.h>
 #include <arpa/inet.h>
 
+#define MTU 1500
+
 static unsigned short ip_cksum(unsigned short *addr, int len)
 {
 	unsigned short cksum;
@@ -41,7 +43,7 @@ static unsigned short tcp_cksum(unsigned char *pkg_data)
 {
 	struct ip *iph = (struct ip *)pkg_data;
 	struct tcphdr *tcph = (struct tcphdr *)(pkg_data + sizeof(struct ip));
-	char tcpBuf[1500];
+	char tcpBuf[MTU];
 
 	struct pseudoTcpHeader
 	{
@@ -59,7 +61,7 @@ static unsigned short tcp_cksum(unsigned char *pkg_data)
 	psdh.tcp_len = htons(ntohs(iph->ip_len) - sizeof(struct ip));
 
 //	printf("ip_len:%d\n", ntohs((unsigned short)iph->ip_len));
-//	printf("tcplen:%d\n", ntohs(psdh.tcp_len));
+	printf("TYP:TCP LEN:%d\n", ntohs(psdh.tcp_len));
 	memcpy(tcpBuf, &psdh, sizeof(struct pseudoTcpHeader));
 	memcpy(tcpBuf+sizeof(struct pseudoTcpHeader), tcph, ntohs(psdh.tcp_len));
 
@@ -70,9 +72,9 @@ static unsigned short udp_cksum(unsigned char *pkg_data)
 {
 	struct ip *iph = (struct ip *)pkg_data;
 	struct udphdr *udph = (struct udphdr *)(pkg_data + sizeof(struct ip));
-	char udpBuf[1500];
+	char udpBuf[MTU];
 
-	struct pseudoTcpHeader
+	struct pseudoUdpHeader
 	{
 	    unsigned int ip_src;
 	    unsigned int ip_dst;
@@ -88,11 +90,11 @@ static unsigned short udp_cksum(unsigned char *pkg_data)
 	psdh.udp_len = htons(ntohs(iph->ip_len) - sizeof(struct ip));
 
 //	printf("ip_len:%d\n", ntohs((unsigned short)iph->ip_len));
-//	printf("tcplen:%d\n", ntohs(psdh.udp_len));
-	memcpy(udpBuf, &psdh, sizeof(struct pseudoTcpHeader));
-	memcpy(udpBuf+sizeof(struct pseudoTcpHeader), udph, ntohs(psdh.udp_len));
+	printf("TYP:UDP LEN:%d\n", ntohs(psdh.udp_len));
+	memcpy(udpBuf, &psdh, sizeof(struct pseudoUdpHeader));
+	memcpy(udpBuf+sizeof(struct pseudoUdpHeader), udph, ntohs(psdh.udp_len));
 
-	return ip_cksum((unsigned short *)udpBuf, sizeof(struct pseudoTcpHeader) + ntohs(psdh.udp_len));
+	return ip_cksum((unsigned short *)udpBuf, sizeof(struct pseudoUdpHeader) + ntohs(psdh.udp_len));
 }
 
 int main(int argc, char**argv)
@@ -101,8 +103,8 @@ int main(int argc, char**argv)
 	struct sockaddr_in servaddr, srcaddr;
 	socklen_t srcaddr_len;
 	int n = 0;
-	int total_len = 0;
-	unsigned char pkg_data[4096];
+//	int total_len = 0;
+	unsigned char pkg_data[MTU];
 	struct ip *iph = (struct ip *)pkg_data;
 	struct tcphdr *tcph = (struct tcphdr *)(pkg_data + sizeof(struct ip));
 	struct udphdr *udph = (struct udphdr *)(pkg_data + sizeof(struct ip));
@@ -151,33 +153,33 @@ int main(int argc, char**argv)
 	for (;;)
 	{
 		srcaddr_len = sizeof(srcaddr);
-		n = recvfrom(sockfd, pkg_data, 4096, 0, (struct sockaddr *) &srcaddr, &srcaddr_len);
+		n = recvfrom(sockfd, pkg_data, MTU, 0, (struct sockaddr *) &srcaddr, &srcaddr_len);
 		strcpy(print_ip, inet_ntoa(srcaddr.sin_addr));
-		printf("forward packet, IP = %s, size = %d, total = %d KB\n", print_ip, n,
-				(total_len += n) / 1024);
+		printf("EXT IP:%s, ", print_ip);
 
 		strcpy(print_ip, inet_ntoa(iph->ip_src));
-		printf("SIP = %s\n", print_ip);
+		printf("RAW IP:%s, LEN:%d", print_ip, n);
 
 		// IP checksum
 		iph->ip_src = srcaddr.sin_addr;
 		iph->ip_sum = 0;
 		iph->ip_sum = ip_cksum((unsigned short *) pkg_data, 20);
 
-		// tcp checksum
 		switch (iph->ip_p)
 		{
+		// tcp checksum
 		case IPPROTO_TCP:
 			tcph->check = 0; /* Checksum field has to be set to 0 before checksumming */
 			tcph->check = tcp_cksum(pkg_data);
 			break;
+		// udp checksum
 		case IPPROTO_UDP:
 			udph->check = 0;
 			udph->check = udp_cksum(pkg_data);
 			break;
 		}
 
-		n = sendto(sockraw, pkg_data, n, 0, (struct sockaddr *) &srcaddr, sizeof(srcaddr));
+		sendto(sockraw, pkg_data, n, 0, (struct sockaddr *) &srcaddr, sizeof(srcaddr));
 	}
 }
 
