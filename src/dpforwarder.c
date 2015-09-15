@@ -155,10 +155,10 @@ int main(int argc, char**argv)
 		srcaddr_len = sizeof(srcaddr);
 		n = recvfrom(sockfd, pkg_data, MTU, 0, (struct sockaddr *) &srcaddr, &srcaddr_len);
 		strcpy(print_ip, inet_ntoa(srcaddr.sin_addr));
-		printf("EXT IP:%s, ", print_ip);
+		printf("EXT_IP:%s ", print_ip);
 
 		strcpy(print_ip, inet_ntoa(iph->ip_src));
-		printf("RAW IP:%s, LEN:%d", print_ip, n);
+		printf("RAW_IP:%s LEN:%d ", print_ip, n);
 
 		// IP checksum
 		iph->ip_src = srcaddr.sin_addr;
