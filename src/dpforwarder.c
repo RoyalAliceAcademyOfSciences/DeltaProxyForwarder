@@ -16,6 +16,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <arpa/inet.h>
 
 static unsigned short ip_cksum(unsigned short *addr, int len)
@@ -40,7 +41,7 @@ static unsigned short tcp_cksum(unsigned char *pkg_data)
 {
 	struct ip *iph = (struct ip *)pkg_data;
 	struct tcphdr *tcph = (struct tcphdr *)(pkg_data + sizeof(struct ip));
-	char tcpBuf[65536];
+	char tcpBuf[1500];
 
 	struct pseudoTcpHeader
 	{
@@ -54,15 +55,44 @@ static unsigned short tcp_cksum(unsigned char *pkg_data)
 	psdh.ip_src = iph->ip_src.s_addr;
 	psdh.ip_dst = iph->ip_dst.s_addr;
 	psdh.zero = 0;
-	psdh.protocol = 6;
+	psdh.protocol = IPPROTO_TCP;
 	psdh.tcp_len = htons(ntohs(iph->ip_len) - sizeof(struct ip));
 
-	printf("ip_len:%d\n", ntohs((unsigned short)iph->ip_len));
-	printf("tcplen:%d\n", ntohs(psdh.tcp_len));
+//	printf("ip_len:%d\n", ntohs((unsigned short)iph->ip_len));
+//	printf("tcplen:%d\n", ntohs(psdh.tcp_len));
 	memcpy(tcpBuf, &psdh, sizeof(struct pseudoTcpHeader));
 	memcpy(tcpBuf+sizeof(struct pseudoTcpHeader), tcph, ntohs(psdh.tcp_len));
 
-	return ip_cksum((unsigned short *)tcpBuf,	sizeof(struct pseudoTcpHeader) + ntohs(psdh.tcp_len));
+	return ip_cksum((unsigned short *)tcpBuf, sizeof(struct pseudoTcpHeader) + ntohs(psdh.tcp_len));
+}
+
+static unsigned short udp_cksum(unsigned char *pkg_data)
+{
+	struct ip *iph = (struct ip *)pkg_data;
+	struct udphdr *udph = (struct udphdr *)(pkg_data + sizeof(struct ip));
+	char udpBuf[1500];
+
+	struct pseudoTcpHeader
+	{
+	    unsigned int ip_src;
+	    unsigned int ip_dst;
+	    unsigned char zero;//always zero
+	    unsigned char protocol;//for udp
+	    unsigned short udp_len;
+	}psdh;
+
+	psdh.ip_src = iph->ip_src.s_addr;
+	psdh.ip_dst = iph->ip_dst.s_addr;
+	psdh.zero = 0;
+	psdh.protocol = IPPROTO_UDP;
+	psdh.udp_len = htons(ntohs(iph->ip_len) - sizeof(struct ip));
+
+//	printf("ip_len:%d\n", ntohs((unsigned short)iph->ip_len));
+//	printf("tcplen:%d\n", ntohs(psdh.udp_len));
+	memcpy(udpBuf, &psdh, sizeof(struct pseudoTcpHeader));
+	memcpy(udpBuf+sizeof(struct pseudoTcpHeader), udph, ntohs(psdh.udp_len));
+
+	return ip_cksum((unsigned short *)udpBuf, sizeof(struct pseudoTcpHeader) + ntohs(psdh.udp_len));
 }
 
 int main(int argc, char**argv)
@@ -75,12 +105,13 @@ int main(int argc, char**argv)
 	unsigned char pkg_data[4096];
 	struct ip *iph = (struct ip *)pkg_data;
 	struct tcphdr *tcph = (struct tcphdr *)(pkg_data + sizeof(struct ip));
+	struct udphdr *udph = (struct udphdr *)(pkg_data + sizeof(struct ip));
 	const int one = 1;
 	char print_ip[16];
 
 	if (argc != 2)
 	{
-		printf("usage:  dpfd <Port>\n");
+		printf("usage:  dpforwarder <Port>\n");
 		exit(1);
 	}
 
@@ -97,8 +128,7 @@ int main(int argc, char**argv)
 	servaddr.sin_port = htons(atoi(argv[1]));
 	if (bind(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) != 0)
 	{
-		perror(
-				"bind(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr))\n");
+		perror("bind(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr))\n");
 		exit(1);
 	}
 
@@ -109,11 +139,9 @@ int main(int argc, char**argv)
 		exit(1);
 	}
 
-	if (setsockopt(sockraw, IPPROTO_IP, IP_HDRINCL, (char *) &one, sizeof(one))
-			== -1)
+	if (setsockopt(sockraw, IPPROTO_IP, IP_HDRINCL, (char *) &one, sizeof(one))	== -1)
 	{
-		perror(
-				"setsockopt(sockraw, IPPROTO_IP, IP_HDRINCL, (char *)&one, sizeof(one))\n");
+		perror("setsockopt(sockraw, IPPROTO_IP, IP_HDRINCL, (char *)&one, sizeof(one))\n");
 		exit(1);
 	}
 
@@ -137,8 +165,17 @@ int main(int argc, char**argv)
 		iph->ip_sum = ip_cksum((unsigned short *) pkg_data, 20);
 
 		// tcp checksum
-		tcph->check = 0; /* Checksum field has to be set to 0 before checksumming */
-		tcph->check = tcp_cksum(pkg_data);
+		switch (iph->ip_p)
+		{
+		case IPPROTO_TCP:
+			tcph->check = 0; /* Checksum field has to be set to 0 before checksumming */
+			tcph->check = tcp_cksum(pkg_data);
+			break;
+		case IPPROTO_UDP:
+			udph->check = 0;
+			udph->check = udp_cksum(pkg_data);
+			break;
+		}
 
 		n = sendto(sockraw, pkg_data, n, 0, (struct sockaddr *) &srcaddr, sizeof(srcaddr));
 	}
